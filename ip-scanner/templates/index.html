@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>设备IP采集程序 v1.0.0</title>
+<style>
+  :root {
+    --bg: #f1f5f9;
+    --card: #ffffff;
+    --border: #e2e8f0;
+    --text: #1e293b;
+    --muted: #64748b;
+    --accent: #0284c7;
+    --online: #16a34a;
+    --offline: #dc2626;
+    --warn: #f59e0b;
+    --btn: #2563eb;
+    --btn-hover: #1d4ed8;
+    --btn-danger: #dc2626;
+    --radius: 8px;
+    --shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg); color: var(--text); min-height: 100vh;
+  }
+  .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
+
+  /* Header */
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 20px; background: var(--card); border-radius: var(--radius);
+    margin-bottom: 20px; border: 1px solid var(--border); box-shadow: var(--shadow);
+  }
+  header h1 { font-size: 18px; font-weight: 600; color: var(--text); }
+  header .version { color: var(--muted); font-size: 12px; margin-left: 8px; }
+
+  /* Stats */
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 20px; }
+  .stat-card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 16px 20px; box-shadow: var(--shadow);
+  }
+  .stat-card .label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .stat-card .value { font-size: 28px; font-weight: 700; margin-top: 4px; }
+  .stat-card .value.online { color: var(--online); }
+  .stat-card .value.offline { color: var(--offline); }
+  .stat-card .value.total { color: var(--accent); }
+
+  /* Actions Bar */
+  .actions {
+    display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap;
+    align-items: center;
+  }
+  .subnet-input {
+    padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--radius);
+    font-size: 13px; font-family: monospace; width: 180px;
+    outline: none; transition: border-color 0.15s; background: var(--card); color: var(--text);
+  }
+  .subnet-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(2,132,199,0.1); }
+  .subnet-input::placeholder { color: var(--muted); }
+  .subnet-hint { font-size: 11px; color: var(--muted); margin-left: -4px; }
+  button {
+    padding: 8px 18px; border: none; border-radius: var(--radius);
+    cursor: pointer; font-size: 13px; font-weight: 500;
+    background: var(--btn); color: #fff; transition: all 0.15s;
+    white-space: nowrap;
+  }
+  button:hover { opacity: 0.88; }
+  button:active { transform: scale(0.98); }
+  button.scan-btn { background: var(--accent); color: #fff; font-weight: 600; }
+  button.danger { background: var(--btn-danger); }
+  button.outline { background: var(--card); border: 1px solid var(--border); color: var(--text); }
+  button.outline:hover { background: #f8fafc; }
+  button:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+  .spacer { flex: 1; }
+
+  /* Progress */
+  .progress-bar {
+    width: 100%; height: 4px; background: var(--border); border-radius: 2px;
+    overflow: hidden; margin-bottom: 20px; display: none;
+  }
+  .progress-bar.active { display: block; }
+  .progress-fill {
+    height: 100%; background: var(--accent); border-radius: 2px;
+    transition: width 0.2s; width: 0%;
+  }
+
+  /* Table */
+  .table-wrapper {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow);
+  }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { padding: 10px 14px; text-align: left; font-size: 13px; }
+  th { background: #f8fafc; color: var(--muted); font-weight: 600; border-bottom: 2px solid var(--border); }
+  td { border-bottom: 1px solid var(--border); color: var(--text); }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: #f0f9ff; }
+  .status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+  .status-dot.online { background: var(--online); box-shadow: 0 0 6px rgba(22,163,74,0.4); }
+  .status-dot.offline { background: var(--offline); }
+  .empty-state { text-align: center; padding: 60px 20px; color: var(--muted); }
+  .empty-state .icon { font-size: 48px; margin-bottom: 12px; }
+
+  /* Toast */
+  .toast {
+    position: fixed; top: 20px; right: 20px; z-index: 999;
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 12px 20px;
+    font-size: 13px; box-shadow: 0 8px 32px rgba(0,0,0,0.12);
+    animation: slideIn 0.25s ease;
+  }
+  @keyframes slideIn { from { transform: translateX(120%); opacity:0; } to { transform: translateX(0); opacity:1; } }
+  .toast.success { border-left: 3px solid var(--online); }
+  .toast.error { border-left: 3px solid var(--offline); }
+
+  /* Polling indicator */
+  .polling-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 6px; }
+  .polling-dot.active { background: var(--online); animation: pulse 1.5s infinite; }
+  @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.3; } }
+
+  @media (max-width: 768px) {
+    .stats { grid-template-columns: repeat(2, 1fr); }
+    .actions { flex-direction: column; align-items: stretch; }
+    .actions button, .subnet-input { width: 100%; }
+    .subnet-hint { margin-left: 0; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <div>
+      <h1>设备IP采集程序<span class="version">v1.0.0</span></h1>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px;">
+      <span id="monitorBadge" style="font-size:12px;color:var(--muted);display:none;">
+        <span class="polling-dot active"></span>监控运行中
+      </span>
+      <span id="autoRefresh" style="font-size:12px;color:var(--muted);">
+        <span class="polling-dot active"></span>自动刷新
+      </span>
+    </div>
+  </header>
+
+  <!-- Stats -->
+  <div class="stats">
+    <div class="stat-card"><div class="label">设备总数</div><div class="value total" id="statTotal">0</div></div>
+    <div class="stat-card"><div class="label">在线设备</div><div class="value online" id="statOnline">0</div></div>
+    <div class="stat-card"><div class="label">离线设备</div><div class="value offline" id="statOffline">0</div></div>
+    <div class="stat-card"><div class="label">当前网段</div><div class="value" style="font-size:18px;" id="statSubnet">--</div></div>
+  </div>
+
+  <!-- Progress -->
+  <div class="progress-bar" id="progressBar">
+    <div class="progress-fill" id="progressFill"></div>
+  </div>
+
+  <!-- Scan Row -->
+  <div class="actions">
+    <input type="text" class="subnet-input" id="subnetInput"
+           placeholder="192.168.1.0/24" title="输入要扫描的网段，留空则自动检测本机网段">
+    <button class="scan-btn" id="btnScan" onclick="startScan()">开始扫描</button>
+    <span class="subnet-hint">留空自动检测本机网段</span>
+    <span class="spacer"></span>
+  </div>
+
+  <!-- Export & Monitor Row -->
+  <div class="actions">
+    <button class="outline" onclick="exportData('csv')">导出 CSV</button>
+    <button class="outline" onclick="exportData('json')">导出 JSON</button>
+    <button class="outline" onclick="exportData('excel')">导出 Excel</button>
+    <span class="spacer"></span>
+    <button id="btnMonitorStart" onclick="monitorStart()">启动监控</button>
+    <button class="danger" id="btnMonitorStop" onclick="monitorStop()" style="display:none;">停止监控</button>
+  </div>
+
+  <!-- Device Table -->
+  <div class="table-wrapper">
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th><th>IP 地址</th><th>MAC 地址</th><th>主机名</th>
+          <th>厂商</th><th>状态</th><th>最后在线</th>
+        </tr>
+      </thead>
+      <tbody id="deviceTableBody">
+        <tr><td colspan="7" class="empty-state">
+          <div class="icon">📡</div>
+          <div>暂无设备数据，点击"开始扫描"发现设备</div>
+        </td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Toast Container -->
+<div id="toastContainer"></div>
+
+<script>
+const API = {
+  devices: '/api/devices',
+  scan:    '/api/scan',
+  scanStatus: '/api/scan/status',
+  count:   '/api/devices/count',
+  export:  (fmt) => `/api/export/${fmt}`,
+  monitor: (act) => `/api/monitor/${act}`,
+  config:  '/api/config',
+};
+
+let refreshTimer = null;
+let scanPollTimer = null;
+
+// ===== Init =====
+document.addEventListener('DOMContentLoaded', () => {
+  loadDevices();
+  loadConfig();
+  checkMonitorStatus();
+  refreshTimer = setInterval(() => { loadDevices(); checkMonitorStatus(); }, 10000);
+
+  // Enter key in subnet input triggers scan
+  document.getElementById('subnetInput').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') startScan();
+  });
+});
+
+// ===== Load Data =====
+async function loadDevices() {
+  try {
+    const [devRes, cntRes] = await Promise.all([
+      fetch(API.devices), fetch(API.count)
+    ]);
+    const devices = await devRes.json();
+    const counts = await cntRes.json();
+
+    document.getElementById('statTotal').textContent = counts.total;
+    document.getElementById('statOnline').textContent = counts.online;
+    document.getElementById('statOffline').textContent = counts.offline;
+
+    const tbody = document.getElementById('deviceTableBody');
+    if (!devices.length) {
+      tbody.innerHTML = `<tr><td colspan="7" class="empty-state">
+        <div class="icon">📡</div><div>暂无设备数据，点击"开始扫描"发现设备</div>
+      </td></tr>`;
+      return;
+    }
+    tbody.innerHTML = devices.map(d => `
+      <tr>
+        <td>${d.id}</td>
+        <td><b>${d.ip_address}</b></td>
+        <td style="font-family:monospace;">${d.mac_address || '-'}</td>
+        <td>${d.hostname || '-'}</td>
+        <td>${d.vendor || '-'}</td>
+        <td>${d.is_online
+          ? '<span class="status-dot online"></span>在线'
+          : '<span class="status-dot offline"></span>离线'}</td>
+        <td>${d.last_seen ? new Date(d.last_seen).toLocaleString('zh-CN') : '-'}</td>
+      </tr>
+    `).join('');
+  } catch(e) {
+    console.error('加载设备失败:', e);
+  }
+}
+
+async function loadConfig() {
+  try {
+    const res = await fetch(API.config);
+    const cfg = await res.json();
+    document.getElementById('statSubnet').textContent = cfg.default_subnet || '(自动检测)';
+  } catch(e) {}
+}
+
+// ===== Scan =====
+async function startScan() {
+  const btn = document.getElementById('btnScan');
+  const subnet = document.getElementById('subnetInput').value.trim();
+  btn.disabled = true;
+  btn.textContent = '启动中...';
+
+  try {
+    const body = subnet ? JSON.stringify({ subnet }) : '{}';
+    const res = await fetch(API.scan, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body,
+    });
+    const data = await res.json();
+    if (res.ok) {
+      showToast(`扫描已启动: ${data.subnet}`, 'success');
+      document.getElementById('progressBar').classList.add('active');
+      pollScanStatus();
+    } else {
+      showToast(data.error, 'error');
+      btn.disabled = false; btn.textContent = '开始扫描';
+    }
+  } catch(e) {
+    showToast('扫描请求失败', 'error');
+    btn.disabled = false; btn.textContent = '开始扫描';
+  }
+}
+
+function pollScanStatus() {
+  if (scanPollTimer) clearInterval(scanPollTimer);
+  scanPollTimer = setInterval(async () => {
+    try {
+      const res = await fetch(API.scanStatus);
+      const s = await res.json();
+      if (!s.running) {
+        clearInterval(scanPollTimer);
+        scanPollTimer = null;
+        document.getElementById('progressBar').classList.remove('active');
+        document.getElementById('progressFill').style.width = '100%';
+        document.getElementById('btnScan').disabled = false;
+        document.getElementById('btnScan').textContent = '开始扫描';
+        loadDevices();
+        if (s.online > 0) showToast(`扫描完成，发现 ${s.online} 台在线设备`, 'success');
+        setTimeout(() => document.getElementById('progressFill').style.width = '0%', 300);
+        return;
+      }
+      if (s.total > 0) {
+        const pct = Math.round((s.progress / s.total) * 100);
+        document.getElementById('progressFill').style.width = pct + '%';
+        document.getElementById('btnScan').textContent = `扫描中 ${pct}%`;
+      }
+    } catch(e) {}
+  }, 500);
+}
+
+// ===== Export =====
+function exportData(fmt) {
+  window.open(API.export(fmt), '_blank');
+  showToast(`正在导出 ${fmt.toUpperCase()}...`, 'success');
+}
+
+// ===== Monitor =====
+async function monitorStart() {
+  try {
+    const res = await fetch(API.monitor('start'), { method: 'POST' });
+    const data = await res.json();
+    showToast(data.message, 'success');
+    checkMonitorStatus();
+  } catch(e) {}
+}
+
+async function monitorStop() {
+  try {
+    const res = await fetch(API.monitor('stop'), { method: 'POST' });
+    const data = await res.json();
+    showToast(data.message, 'success');
+    checkMonitorStatus();
+  } catch(e) {}
+}
+
+async function checkMonitorStatus() {
+  try {
+    const res = await fetch(API.monitor('status'));
+    const data = await res.json();
+    document.getElementById('monitorBadge').style.display = data.running ? 'inline' : 'none';
+    document.getElementById('btnMonitorStart').style.display = data.running ? 'none' : '';
+    document.getElementById('btnMonitorStop').style.display = data.running ? '' : 'none';
+  } catch(e) {}
+}
+
+// ===== Toast =====
+function showToast(msg, type) {
+  const el = document.createElement('div');
+  el.className = `toast ${type}`;
+  el.textContent = msg;
+  document.getElementById('toastContainer').appendChild(el);
+  setTimeout(() => { el.style.opacity = '0'; el.style.transition = 'opacity 0.3s'; }, 2500);
+  setTimeout(() => el.remove(), 2800);
+}
+</script>
+</body>
+</html>

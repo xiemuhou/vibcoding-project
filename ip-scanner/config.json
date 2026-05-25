@@ -1,0 +1,8 @@
+{
+  "scan_interval": 300,
+  "ping_timeout": 1,
+  "max_threads": 50,
+  "default_subnet": "",
+  "export_dir": "exports",
+  "db_path": "devices.db"
+}
