@@ -1,0 +1,13 @@
+server:
+  host: "0.0.0.0"
+  port: 5000
+
+auth:
+  jwt_secret: "ip-manager-secret-key-change-this"
+  token_expire_hours: 8
+  username: "admin"
+  password: "$2b$12$ajWWdmKJaKM3pZGIj20z0er.icEqk1cBL/tVMnpJz76ycrtrizfqa"  # 默认密码: admin123
+
+data:
+  excel_path: "../data/IP地址信息汇总.xlsx"
+  db_path: "../data/ip_manager.db"

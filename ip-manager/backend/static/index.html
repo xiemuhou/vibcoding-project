@@ -1,0 +1,618 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IP 地址管理系统</title>
+<link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css">
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family: "Microsoft YaHei","PingFang SC",sans-serif; background:#f5f7fa; min-height:100vh; }
+.header { background:#1d6fa5; color:#fff; padding:0 24px; height:56px; display:flex; align-items:center; justify-content:space-between; }
+.header h1 { font-size:18px; font-weight:600; }
+.header .user-info { display:flex; align-items:center; gap:12px; font-size:14px; }
+.main { max-width:1600px; margin:0 auto; padding:20px 24px; }
+.stats-row { display:grid; grid-template-columns:repeat(4,1fr); gap:16px; margin-bottom:20px; }
+.stat-card { background:#fff; border-radius:8px; padding:20px; box-shadow:0 1px 4px rgba(0,0,0,.08); }
+.stat-card .label { font-size:13px; color:#909399; margin-bottom:8px; }
+.stat-card .value { font-size:28px; font-weight:700; color:#303133; }
+.stat-card .value.free { color:#67c23a; }
+.stat-card .value.used { color:#409eff; }
+.stat-card .value.rate { color:#e6a23c; }
+.sheet-bar { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:16px; }
+.sheet-bar .sheet-chip { padding:6px 14px; border-radius:6px; font-size:13px; cursor:pointer; background:#fff; border:1px solid #dcdfe6; transition:all .2s; }
+.sheet-bar .sheet-chip:hover { border-color:#409eff; color:#409eff; }
+.sheet-bar .sheet-chip.active { background:#409eff; color:#fff; border-color:#409eff; }
+.sheet-chip .dot { display:inline-block; width:6px; height:6px; border-radius:50%; margin-right:6px; }
+.sheet-chip .dot.free { background:#67c23a; }
+.sheet-chip .dot.used { background:#409eff; }
+.toolbar { display:flex; gap:12px; margin-bottom:16px; align-items:center; flex-wrap:wrap; }
+.login-container { min-height:100vh; display:flex; align-items:center; justify-content:center; background:linear-gradient(135deg,#1d6fa5,#409eff); }
+.login-card { width:400px; padding:40px; background:#fff; border-radius:12px; box-shadow:0 8px 32px rgba(0,0,0,.15); }
+.login-card h2 { text-align:center; margin-bottom:32px; color:#303133; font-size:22px; }
+
+/* IP Grid */
+.ip-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(68px, 1fr)); gap:6px; margin-bottom:16px; }
+.ip-cell { position:relative; border-radius:6px; padding:8px 4px; text-align:center; cursor:pointer; border:2px solid transparent; transition:all .15s; user-select:none; min-height:56px; display:flex; flex-direction:column; align-items:center; justify-content:center; }
+.ip-cell:hover { border-color:#409eff; transform:scale(1.05); z-index:1; box-shadow:0 2px 8px rgba(0,0,0,.15); }
+.ip-cell.free { background:#c8e6c9; border-color:#66bb6a; }
+.ip-cell.used { background:#e3f2fd; border-color:#5b9cf5; }
+.ip-cell .octet { font-size:16px; font-weight:700; color:#303133; line-height:1.2; }
+.ip-cell .user { font-size:10px; color:#606266; margin-top:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:100%; }
+.ip-cell .tag { font-size:9px; margin-top:2px; }
+.ip-cell.free .octet { color:#2e7d32; }
+
+/* Legend */
+.ip-legend { display:flex; gap:20px; margin-bottom:12px; font-size:13px; align-items:center; }
+.ip-legend .legend-dot { display:inline-block; width:12px; height:12px; border-radius:3px; margin-right:6px; }
+.ip-legend .legend-dot.free { background:#c8e6c9; border:1px solid #66bb6a; }
+.ip-legend .legend-dot.used { background:#e3f2fd; border:1px solid #5b9cf5; }
+
+/* Range header */
+.ip-range-header { grid-column:1/-1; font-size:12px; color:#909399; padding:4px 0; margin-top:4px; }
+.ip-range-header:first-child { margin-top:0; }
+
+.detail-section { margin-bottom:16px; }
+.detail-section h4 { font-size:14px; color:#409eff; margin-bottom:8px; border-bottom:1px solid #ebeef5; padding-bottom:4px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <!-- 登录页 -->
+  <div v-if="!loggedIn" class="login-container">
+    <div class="login-card">
+      <h2>IP 地址管理系统</h2>
+      <el-form :model="loginForm" label-position="top" @submit.prevent="doLogin">
+        <el-form-item label="用户名">
+          <el-input v-model="loginForm.username" placeholder="请输入用户名" />
+        </el-form-item>
+        <el-form-item label="密码">
+          <el-input v-model="loginForm.password" type="password" placeholder="请输入密码" show-password @keyup.enter="doLogin" />
+        </el-form-item>
+        <el-button type="primary" style="width:100%" @click="doLogin" :loading="loginLoading">登录</el-button>
+      </el-form>
+    </div>
+  </div>
+
+  <!-- 主界面 -->
+  <div v-else>
+    <div class="header">
+      <h1>IP 地址管理系统</h1>
+      <div class="user-info">
+        <span>{{ currentUser.username }}</span>
+        <span v-if="currentUser.isAdmin" style="color:#e6a23c;font-size:12px">[管理员]</span>
+        <el-button size="small" text style="color:#fff" @click="showAdmin=!showAdmin">
+          {{ showAdmin ? 'IP 管理' : '系统管理' }}
+        </el-button>
+        <el-button size="small" text style="color:#fff" @click="logout">退出</el-button>
+      </div>
+    </div>
+
+    <div class="main">
+      <!-- 管理员面板 -->
+      <div v-if="showAdmin && currentUser.isAdmin">
+        <el-tabs v-model="adminTab">
+          <el-tab-pane label="用户管理" name="users">
+            <el-table :data="users" border stripe style="width:100%">
+              <el-table-column prop="id" label="ID" width="60" />
+              <el-table-column prop="username" label="用户名" width="150" />
+              <el-table-column prop="displayName" label="显示名称" width="150" />
+              <el-table-column prop="isAdmin" label="管理员" width="80">
+                <template #default="{row}">{{ row.isAdmin ? '是' : '否' }}</template>
+              </el-table-column>
+              <el-table-column prop="createdAt" label="创建时间" width="180" />
+              <el-table-column label="操作" width="200">
+                <template #default="{row}">
+                  <el-button size="small" @click="showResetPwd(row)">重置密码</el-button>
+                  <el-button size="small" type="danger" @click="deleteUser(row)" :disabled="row.username===currentUser.username">删除</el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+          </el-tab-pane>
+          <el-tab-pane label="操作日志" name="logs">
+            <div style="margin-bottom:12px;display:flex;gap:12px;">
+              <el-input v-model="logFilter.username" placeholder="操作人" clearable style="width:150px" @change="loadLogs" />
+              <el-select v-model="logFilter.action" placeholder="操作类型" clearable style="width:120px" @change="loadLogs">
+                <el-option label="占用" value="occupy" />
+                <el-option label="释放" value="release" />
+                <el-option label="修改" value="update" />
+              </el-select>
+            </div>
+            <el-table :data="logs" border stripe style="width:100%">
+              <el-table-column prop="id" label="ID" width="60" />
+              <el-table-column prop="timestamp" label="时间" width="170" />
+              <el-table-column prop="username" label="操作人" width="120" />
+              <el-table-column prop="action" label="操作" width="80">
+                <template #default="{row}">
+                  <el-tag :type="row.action==='occupy'?'success':row.action==='release'?'warning':'info'" size="small">
+                    {{ {occupy:'占用',release:'释放',update:'修改'}[row.action] || row.action }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column prop="ipAddress" label="IP地址" width="150" />
+              <el-table-column prop="sheetName" label="网段" width="130" />
+              <el-table-column prop="detail" label="详情" min-width="200" />
+            </el-table>
+            <el-pagination style="margin-top:16px" background layout="prev,next,total" :total="logTotal" :page-size="50" @current-change="p=>loadLogs(p)" />
+          </el-tab-pane>
+        </el-tabs>
+      </div>
+
+      <!-- IP 管理面板 -->
+      <div v-if="!showAdmin">
+        <!-- 统计卡片 -->
+        <div class="stats-row">
+          <div class="stat-card"><div class="label">IP 总数</div><div class="value">{{ stats.total }}</div></div>
+          <div class="stat-card"><div class="label">已占用</div><div class="value used">{{ stats.used }}</div></div>
+          <div class="stat-card"><div class="label">空闲</div><div class="value free">{{ stats.free }}</div></div>
+          <div class="stat-card"><div class="label">占用率</div><div class="value rate">{{ stats.usageRate }}%</div></div>
+        </div>
+
+        <!-- 网段选择 -->
+        <div class="sheet-bar">
+          <div class="sheet-chip" :class="{active:currentSheet===s.name}" v-for="s in sheets" :key="s.name" @click="selectSheet(s.name)">
+            <span class="dot" :class="s.free>0?'free':'used'"></span>
+            {{ s.name }}
+            <span style="color:#909399;font-size:11px;margin-left:4px">{{ s.used }}/{{ s.total }}</span>
+            <el-tag v-if="s.readonly" size="small" type="info" style="margin-left:4px">只读</el-tag>
+          </div>
+        </div>
+
+        <!-- 工具栏 -->
+        <div class="toolbar">
+          <el-input v-model="searchText" placeholder="搜索 IP/使用人/部门/设备..." clearable style="width:260px" @keyup.enter="doSearch" @clear="doSearch" />
+          <el-button type="primary" @click="doSearch">搜索</el-button>
+          <el-select v-model="statusFilter" style="width:110px" @change="doSearch">
+            <el-option label="全部" value="all" />
+            <el-option label="空闲" value="free" />
+            <el-option label="已占用" value="used" />
+          </el-select>
+          <el-button @click="doSearch">刷新</el-button>
+          <span style="color:#909399;font-size:13px;margin-left:8px">共 {{ sortedIPs.length }} 个</span>
+        </div>
+
+        <!-- 图例 -->
+        <div class="ip-legend">
+          <span><span class="legend-dot free"></span> 空闲 ({{ sortedIPs.filter(i=>i.free).length }})</span>
+          <span><span class="legend-dot used"></span> 已占用 ({{ sortedIPs.filter(i=>!i.free).length }})</span>
+          <span style="color:#909399;font-size:12px">点击空闲 IP 占用，点击已占用 IP 查看详情</span>
+        </div>
+
+        <!-- IP 网格 -->
+        <div v-if="loading" style="text-align:center;padding:40px;color:#909399;">加载中...</div>
+        <div v-else-if="sortedIPs.length===0" style="text-align:center;padding:40px;color:#909399;">
+          暂无匹配的 IP 记录 (ipList: {{ ipList.length }}, sheet: {{ currentSheet }})
+        </div>
+        <div v-else class="ip-grid">
+          <div v-for="ip in sortedIPs" :key="ip.sheet + '-' + ip.excel_row"
+            class="ip-cell" :class="ip.free ? 'free' : 'used'"
+            @click="onCellClick(ip)"
+            :title="ip.ip + (ip.useUser ? ' - ' + ip.useUser : ' - 空闲')">
+            <span class="octet">{{ getOctet(ip) }}</span>
+            <span v-if="ip.useUser" class="user">{{ ip.useUser }}</span>
+            <span v-else class="tag" style="color:#67c23a">空闲</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 占用对话框 -->
+    <el-dialog v-model="occupyVisible" title="占用 IP" width="520px">
+      <el-form :model="occupyForm" label-width="100px" @submit.prevent="doOccupy">
+        <el-form-item label="IP 地址"><el-input :model-value="occupyForm.ip" disabled /></el-form-item>
+        <el-form-item label="网段"><el-input :model-value="occupyForm.sheet" disabled /></el-form-item>
+        <el-form-item label="使用人" required>
+          <el-input v-model="occupyForm.useUser" placeholder="请输入使用人姓名" />
+        </el-form-item>
+        <el-form-item label="使用部门">
+          <el-autocomplete v-model="occupyForm.department" :fetch-suggestions="queryDept" placeholder="输入或选择部门" style="width:100%" />
+        </el-form-item>
+        <el-form-item label="使用设备" required>
+          <el-select v-model="occupyForm.useDevice" placeholder="请选择设备类型" style="width:100%">
+            <el-option v-for="d in deviceTypes" :key="d" :label="d" :value="d" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="设备型号"><el-input v-model="occupyForm.model" placeholder="如: HP EliteBook 840" /></el-form-item>
+        <el-form-item label="MAC地址"><el-input v-model="occupyForm.macAddress" placeholder="如: AA:BB:CC:DD:EE:FF" /></el-form-item>
+        <el-form-item label="位置"><el-input v-model="occupyForm.location" placeholder="如: A栋3楼办公室" /></el-form-item>
+        <el-form-item label="备注"><el-input v-model="occupyForm.remark" type="textarea" :rows="2" /></el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="occupyVisible=false">取消</el-button>
+        <el-button type="primary" @click="doOccupy" :loading="occupyLoading">确认占用</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- IP 详情对话框 -->
+    <el-dialog v-model="detailVisible" title="IP 详情" width="520px">
+      <div v-if="detailRow" class="detail-section">
+        <h4>基本信息</h4>
+        <el-descriptions :column="2" border size="small">
+          <el-descriptions-item label="IP 地址">{{ detailRow.ip }}</el-descriptions-item>
+          <el-descriptions-item label="网段">{{ detailRow.sheet }}</el-descriptions-item>
+          <el-descriptions-item label="序号">{{ detailRow.serial }}</el-descriptions-item>
+          <el-descriptions-item label="状态">
+            <el-tag :type="detailRow.free?'success':'warning'" size="small">{{ detailRow.free ? '空闲' : '已占用' }}</el-tag>
+          </el-descriptions-item>
+        </el-descriptions>
+      </div>
+      <div v-if="detailRow" class="detail-section">
+        <h4>使用信息</h4>
+        <el-descriptions :column="2" border size="small">
+          <el-descriptions-item label="使用人">{{ detailRow.useUser || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="使用部门">{{ detailRow.department || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="使用设备">{{ detailRow.useDevice || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="设备型号">{{ detailRow.model || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="MAC地址">{{ detailRow.macAddress || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="位置">{{ detailRow.location || '-' }}</el-descriptions-item>
+        </el-descriptions>
+      </div>
+      <div v-if="detailRow" class="detail-section">
+        <h4>备注</h4>
+        <p style="color:#606266;font-size:14px;">{{ detailRow.remark || '无' }}</p>
+      </div>
+      <template #footer>
+        <el-button @click="detailVisible=false">关闭</el-button>
+        <el-button v-if="!detailRow?.free" size="small" type="warning" @click="doRelease(detailRow)">释放</el-button>
+        <el-button v-if="detailRow && detailRow.free && !sheetReadonly" type="success" @click="detailVisible=false;openOccupy(detailRow)">占用此 IP</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 重置密码对话框 -->
+    <el-dialog v-model="resetPwdVisible" title="重置密码" width="360px">
+      <el-form>
+        <el-form-item label="用户">{{ resetPwdUser?.username }}</el-form-item>
+        <el-form-item label="新密码">
+          <el-input v-model="resetPwdForm.password" type="password" placeholder="至少4位" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="resetPwdVisible=false">取消</el-button>
+        <el-button type="primary" @click="doResetPwd">确认</el-button>
+      </template>
+    </el-dialog>
+  </div>
+</div>
+
+<script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+<script src="https://unpkg.com/element-plus"></script>
+<script src="https://unpkg.com/@element-plus/icons-vue"></script>
+<script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+<script>
+const { createApp, ref, reactive, computed, onMounted } = Vue;
+
+const app = createApp({
+  setup() {
+    // ── 认证 ──
+    const loggedIn = ref(false);
+    const loginLoading = ref(false);
+    const loginForm = reactive({ username:'', password:'' });
+    const currentUser = ref({});
+    const token = ref('');
+
+    // ── IP 管理 ──
+    const sheets = ref([]);
+    const currentSheet = ref('');
+    const stats = reactive({ total:0, used:0, free:0, usageRate:0 });
+    const ipList = ref([]);
+    const ipTotal = ref(0);
+    const pageSize = ref(500); // grid view loads more at once
+    const searchText = ref('');
+    const statusFilter = ref('all');
+    const loading = ref(false);
+
+    // ── 占用 ──
+    const occupyVisible = ref(false);
+    const occupyLoading = ref(false);
+    const initOccupy = { sheet:'', excelRow:0, ip:'', useUser:'', department:'', useDevice:'', model:'', macAddress:'', location:'', remark:'' };
+    const occupyForm = reactive({ ...initOccupy });
+
+    // ── 详情 ──
+    const detailVisible = ref(false);
+    const detailRow = ref(null);
+
+    // ── 管理员 ──
+    const showAdmin = ref(false);
+    const adminTab = ref('users');
+    const users = ref([]);
+    const logs = ref([]);
+    const logTotal = ref(0);
+    const logFilter = reactive({ username:'', action:'' });
+    const resetPwdVisible = ref(false);
+    const resetPwdUser = ref(null);
+    const resetPwdForm = reactive({ password:'' });
+
+    const deviceTypes = ['台式电脑','笔记本电脑','打印机','服务器','网络设备','监控设备','其他'];
+    const departments = ['电算TEAM','计算部','管理部','制造部','品质部','研发部','人事部','财务部','营业部','购买部'];
+
+    const api = axios.create({ baseURL:'/api' });
+    api.interceptors.request.use(c => { if (token.value) c.headers.Authorization = 'Bearer ' + token.value; return c; });
+    api.interceptors.response.use(r => r, e => {
+      if (e.response?.status === 401) { logout(); }
+      return Promise.reject(e);
+    });
+
+    // ── 认证方法 ──
+    async function doLogin() {
+      if (!loginForm.username || !loginForm.password) {
+        ElMessage.warning('请输入用户名和密码');
+        return;
+      }
+      loginLoading.value = true;
+      try {
+        const r = await api.post('/auth/login', { username:loginForm.username, password:loginForm.password });
+        token.value = r.data.token;
+        currentUser.value = r.data;
+        loggedIn.value = true;
+        await Promise.all([loadStats(), loadSheets()]);
+      } catch (e) {
+        ElMessage.error(e.response?.data?.detail || '登录失败');
+      }
+      loginLoading.value = false;
+    }
+
+    function logout() {
+      loggedIn.value = false;
+      token.value = '';
+      currentUser.value = {};
+      showAdmin.value = false;
+      localStorage.removeItem('ipmgr_token');
+    }
+
+    // ── IP 管理方法 ──
+    async function loadStats() {
+      try { const r = await api.get('/ip/stats'); Object.assign(stats, r.data); } catch (e) {}
+    }
+
+    async function loadSheets() {
+      try {
+        const r = await api.get('/ip/sheets');
+        sheets.value = r.data;
+        if (!currentSheet.value && sheets.value.length) {
+          currentSheet.value = sheets.value[0].name;
+          loadIPs();
+        }
+      } catch (e) {}
+    }
+
+    function selectSheet(name) {
+      currentSheet.value = name;
+      searchText.value = '';
+      statusFilter.value = 'all';
+      loadIPs();
+    }
+
+    async function loadIPs() {
+      loading.value = true;
+      try {
+        const r = await api.get('/ip/list', {
+          params: {
+            sheet: currentSheet.value,
+            page: 1,
+            pageSize: 500,
+            search: searchText.value,
+            status: statusFilter.value,
+          }
+        });
+        ipList.value = r.data.items;
+        ipTotal.value = r.data.total;
+      } catch (e) {
+        ElMessage.error('加载失败');
+      }
+      loading.value = false;
+    }
+
+    function doSearch() { loadIPs(); }
+
+    // IP grid: sorted by last octet
+    const sortedIPs = computed(() => {
+      return [...ipList.value].sort((a, b) => getOctet(a) - getOctet(b));
+    });
+
+    function getOctet(ip) {
+      if (!ip || !ip.ip) return 0;
+      const parts = ip.ip.split('.');
+      return parseInt(parts[parts.length - 1]) || 0;
+    }
+
+    const sheetReadonly = computed(() => {
+      const s = sheets.value.find(s => s.name === currentSheet.value);
+      return s?.readonly || false;
+    });
+
+    // ── Cell click ──
+    function onCellClick(ip) {
+      if (ip.free && !sheetReadonly.value) {
+        openOccupy(ip);
+      } else {
+        showDetail(ip);
+      }
+    }
+
+    function showDetail(row) {
+      detailRow.value = row;
+      detailVisible.value = true;
+    }
+
+    // ── 占用 ──
+    function openOccupy(row) {
+      Object.assign(occupyForm, {
+        sheet: row.sheet,
+        excelRow: row.excel_row,
+        ip: row.ip,
+        useUser: row.useUser || '',
+        department: row.department || '',
+        useDevice: '',
+        model: row.model || '',
+        macAddress: row.macAddress || '',
+        location: row.location || '',
+        remark: row.remark || '',
+      });
+      occupyVisible.value = true;
+    }
+
+    function _updateRowInList(row, updates) {
+      const idx = ipList.value.findIndex(r => r.excel_row === row.excel_row && r.sheet === row.sheet);
+      if (idx >= 0) {
+        ipList.value[idx] = { ...ipList.value[idx], ...updates };
+      }
+    }
+
+    function _updateStats(deltaUsed) {
+      stats.used += deltaUsed;
+      stats.free -= deltaUsed;
+      stats.usageRate = stats.total > 0 ? Math.round(stats.used / stats.total * 1000) / 10 : 0;
+      const s = sheets.value.find(s => s.name === currentSheet.value);
+      if (s) {
+        s.used += deltaUsed;
+        s.free -= deltaUsed;
+        s.usageRate = s.total > 0 ? Math.round(s.used / s.total * 1000) / 10 : 0;
+      }
+    }
+
+    async function doOccupy() {
+      if (!occupyForm.useUser) { ElMessage.warning('请输入使用人'); return; }
+      if (!occupyForm.useDevice) { ElMessage.warning('请选择使用设备'); return; }
+      occupyLoading.value = true;
+      const formData = { ...occupyForm };
+      try {
+        await api.post('/ip/occupy', formData);
+        _updateRowInList({ excel_row: formData.excelRow, sheet: formData.sheet }, {
+          department: formData.department,
+          useUser: formData.useUser,
+          useDevice: formData.useDevice,
+          model: formData.model,
+          macAddress: formData.macAddress,
+          location: formData.location,
+          remark: formData.remark,
+          free: false,
+        });
+        _updateStats(1);
+        ElMessage.success('占用成功');
+        occupyVisible.value = false;
+        loadStats();
+        loadIPs();
+      } catch (e) {
+        ElMessage.error(e.response?.data?.detail || '占用失败');
+      }
+      occupyLoading.value = false;
+    }
+
+    async function doRelease(row) {
+      const { ip, sheet, excel_row, useUser } = row;
+      detailVisible.value = false;
+      await new Promise(r => setTimeout(r, 300));
+      try {
+        await ElMessageBox.confirm(
+          `确定释放 ${ip}？使用人: ${useUser || '无'}`,
+          '确认释放',
+          { type: 'warning' }
+        );
+        await api.post('/ip/release', { sheet, excelRow: excel_row, ip });
+        _updateRowInList({ excel_row, sheet }, {
+          department: '', useUser: '', useDevice: '', model: '',
+          macAddress: '', location: '', remark: '', status: '', free: true,
+        });
+        _updateStats(-1);
+        ElMessage.success('释放成功');
+        loadStats();
+        loadIPs();
+      } catch (e) {
+        if (e !== 'cancel' && e !== 'close') {
+          ElMessage.error(e.response?.data?.detail || '释放失败');
+        }
+      }
+    }
+
+    function queryDept(qs, cb) {
+      const kw = (qs || '').toLowerCase();
+      cb(departments.filter(d => d.toLowerCase().includes(kw)).map(d => ({ value: d })));
+    }
+
+    // ── 管理员方法 ──
+    async function loadUsers() {
+      try { const r = await api.get('/admin/users'); users.value = r.data; } catch (e) {}
+    }
+    async function loadLogs(page = 1) {
+      try {
+        const r = await api.get('/admin/logs', {
+          params: { page, pageSize: 50, username: logFilter.username || undefined, action: logFilter.action || undefined }
+        });
+        logs.value = r.data.items;
+        logTotal.value = r.data.total;
+      } catch (e) {}
+    }
+
+    function showResetPwd(user) {
+      resetPwdUser.value = user;
+      resetPwdForm.password = '';
+      resetPwdVisible.value = true;
+    }
+    async function doResetPwd() {
+      if (resetPwdForm.password.length < 4) { ElMessage.warning('密码至少4位'); return; }
+      try {
+        await api.post('/admin/reset-password', { userId: resetPwdUser.value.id, newPassword: resetPwdForm.password });
+        ElMessage.success('密码已重置');
+        resetPwdVisible.value = false;
+      } catch (e) { ElMessage.error(e.response?.data?.detail || '重置失败'); }
+    }
+
+    async function deleteUser(user) {
+      try {
+        await ElMessageBox.confirm(`确定删除用户 "${user.username}"？`, '确认删除', { type: 'warning' });
+        await api.post('/admin/delete-user', { userId: user.id });
+        ElMessage.success('已删除');
+        loadUsers();
+      } catch (e) {
+        if (e !== 'cancel' && e !== 'close') {
+          ElMessage.error(e.response?.data?.detail || '删除失败');
+        }
+      }
+    }
+
+    Vue.watch(() => adminTab.value, (v) => {
+      if (v === 'users') loadUsers(); else loadLogs();
+    });
+    Vue.watch(() => showAdmin.value, (v) => {
+      if (v) { if (adminTab.value === 'users') loadUsers(); else loadLogs(); }
+    });
+
+    Vue.watch(() => token.value, v => {
+      if (v) localStorage.setItem('ipmgr_token', v);
+    });
+
+    onMounted(() => {
+      const saved = localStorage.getItem('ipmgr_token');
+      if (saved) {
+        token.value = saved;
+        api.get('/auth/me').then(r => {
+          currentUser.value = r.data;
+          loggedIn.value = true;
+          loadStats();
+          loadSheets();
+        }).catch(() => localStorage.removeItem('ipmgr_token'));
+      }
+    });
+
+    return {
+      loggedIn, loginLoading, loginForm, currentUser,
+      sheets, currentSheet, stats, ipList, ipTotal, pageSize, searchText, statusFilter, loading,
+      sortedIPs, getOctet,
+      occupyVisible, occupyLoading, occupyForm, sheetReadonly,
+      detailVisible, detailRow,
+      showAdmin, adminTab, users, logs, logTotal, logFilter,
+      resetPwdVisible, resetPwdUser, resetPwdForm,
+      deviceTypes, departments,
+      doLogin, logout,
+      selectSheet, loadIPs, doSearch,
+      onCellClick, showDetail, openOccupy, doOccupy, doRelease, queryDept,
+      loadLogs, showResetPwd, doResetPwd, deleteUser,
+    };
+  }
+});
+
+app.use(ElementPlus);
+app.mount('#app');
+</script>
+</body>
+</html>
