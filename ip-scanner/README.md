@@ -14,30 +14,56 @@
 
 ### 环境要求
 
-- Python 3.10+
-- pip
+- Windows 10/11
+- Python 3.10+（推荐 3.11 或 3.12）
 
-### 安装
+### Windows 直接运行
+
+双击项目目录下的 `start.bat` 即可启动。
+
+首次运行时脚本会自动：
+
+1. 创建 `.venv` 虚拟环境
+2. 安装核心依赖
+3. 打开浏览器访问 `http://localhost:3000`
+
+如果安装依赖失败，优先确认：
+
+- 已安装 Python 3.10/3.11/3.12/3.13
+- 安装 Python 时已勾选 `Add python.exe to PATH`
+- 当前网络能访问 PyPI，或配置了公司代理
+
+如果是从另一台电脑复制过来的项目，请不要复制 `.venv` 目录。`.venv` 里记录了原电脑的 Python 安装路径，换电脑后可能出现类似 `did not find executable at 'D:\Program Files\Python314\python.exe'` 的错误。新版 `start.bat` 会自动检测并重建无效的 `.venv`；也可以手动删除 `.venv` 后重新双击 `start.bat`。
+
+### 手动安装
 
 ```bash
-# 克隆项目
-git clone <repo-url>
-cd vibcoding-project
+# 进入项目目录
+cd ip-scanner
 
 # 创建虚拟环境（推荐）
 python -m venv .venv
-source .venv/bin/activate  # Linux/macOS
-# 或 .venv\Scripts\activate  # Windows
+.venv\Scripts\activate
 
 # 安装依赖
 pip install -r requirements.txt
 ```
 
+### 可选增强依赖
+
+基础扫描不需要安装可选依赖。若需要主动 ARP 探测或更完整的 MAC 厂商识别，可额外安装：
+
+```bash
+pip install -r requirements-optional.txt
+```
+
+在 Windows 上，主动 ARP 探测通常还需要管理员权限和 Npcap 支持；即使不安装这些可选依赖，Web 程序也可以正常启动和扫描。
+
 ### 使用
 
 ```bash
-# 启动IP采集
-python main.py
+# 启动 Web 页面
+python web_server.py
 ```
 
 ## 目录结构

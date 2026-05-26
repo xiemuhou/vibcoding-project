@@ -41,7 +41,11 @@ def ping_host(ip: str, timeout: float = 1) -> tuple[str, bool, float | None]:
         return (ip, False, None)
 
 
-def scan_subnet(subnet: str | None = None, progress_callback=None) -> list[ScanResult]:
+def scan_subnet(
+    subnet: str | None = None,
+    progress_callback=None,
+    stop_event=None,
+) -> list[ScanResult]:
     """扫描整个子网，返回在线设备列表"""
     config = load_config()
     if not subnet:
@@ -53,10 +57,14 @@ def scan_subnet(subnet: str | None = None, progress_callback=None) -> list[ScanR
     results: list[ScanResult] = []
     total = len(hosts)
 
-    with ThreadPoolExecutor(max_workers=max_threads) as executor:
-        futures = {executor.submit(ping_host, ip, timeout): ip for ip in hosts}
+    executor = ThreadPoolExecutor(max_workers=max_threads)
+    futures = {executor.submit(ping_host, ip, timeout): ip for ip in hosts}
 
+    try:
         for i, future in enumerate(as_completed(futures), 1):
+            if stop_event and stop_event.is_set():
+                break
+
             ip, online, response_ms = future.result()
             if online:
                 results.append(ScanResult(
@@ -66,6 +74,13 @@ def scan_subnet(subnet: str | None = None, progress_callback=None) -> list[ScanR
                 ))
             if progress_callback:
                 progress_callback(i, total)
+    finally:
+        if stop_event and stop_event.is_set():
+            for future in futures:
+                future.cancel()
+            executor.shutdown(wait=False, cancel_futures=True)
+        else:
+            executor.shutdown(wait=True)
 
     return results
 

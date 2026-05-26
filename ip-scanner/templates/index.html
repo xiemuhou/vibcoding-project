@@ -71,6 +71,7 @@
   button:hover { opacity: 0.88; }
   button:active { transform: scale(0.98); }
   button.scan-btn { background: var(--accent); color: #fff; font-weight: 600; }
+  button.stop-btn { background: var(--btn-danger); color: #fff; font-weight: 600; }
   button.danger { background: var(--btn-danger); }
   button.outline { background: var(--card); border: 1px solid var(--border); color: var(--text); }
   button.outline:hover { background: #f8fafc; }
@@ -164,6 +165,7 @@
     <input type="text" class="subnet-input" id="subnetInput"
            placeholder="192.168.1.0/24" title="输入要扫描的网段，留空则自动检测本机网段">
     <button class="scan-btn" id="btnScan" onclick="startScan()">开始扫描</button>
+    <button class="stop-btn" id="btnStopScan" onclick="stopScan()" style="display:none;">停止扫描</button>
     <span class="subnet-hint">留空自动检测本机网段</span>
     <span class="spacer"></span>
   </div>
@@ -204,6 +206,7 @@
 const API = {
   devices: '/api/devices',
   scan:    '/api/scan',
+  scanStop: '/api/scan/stop',
   scanStatus: '/api/scan/status',
   count:   '/api/devices/count',
   export:  (fmt) => `/api/export/${fmt}`,
@@ -276,9 +279,11 @@ async function loadConfig() {
 // ===== Scan =====
 async function startScan() {
   const btn = document.getElementById('btnScan');
+  const stopBtn = document.getElementById('btnStopScan');
   const subnet = document.getElementById('subnetInput').value.trim();
   btn.disabled = true;
   btn.textContent = '启动中...';
+  stopBtn.style.display = '';
 
   try {
     const body = subnet ? JSON.stringify({ subnet }) : '{}';
@@ -290,15 +295,35 @@ async function startScan() {
     const data = await res.json();
     if (res.ok) {
       showToast(`扫描已启动: ${data.subnet}`, 'success');
+      await loadDevices();
       document.getElementById('progressBar').classList.add('active');
       pollScanStatus();
     } else {
       showToast(data.error, 'error');
       btn.disabled = false; btn.textContent = '开始扫描';
+      stopBtn.style.display = 'none';
     }
   } catch(e) {
     showToast('扫描请求失败', 'error');
     btn.disabled = false; btn.textContent = '开始扫描';
+    stopBtn.style.display = 'none';
+  }
+}
+
+async function stopScan() {
+  const stopBtn = document.getElementById('btnStopScan');
+  stopBtn.disabled = true;
+  stopBtn.textContent = '停止中...';
+
+  try {
+    const res = await fetch(API.scanStop, { method: 'POST' });
+    const data = await res.json();
+    showToast(data.message || '正在停止扫描', res.ok ? 'success' : 'error');
+    pollScanStatus();
+  } catch(e) {
+    showToast('停止扫描请求失败', 'error');
+    stopBtn.disabled = false;
+    stopBtn.textContent = '停止扫描';
   }
 }
 
@@ -315,15 +340,24 @@ function pollScanStatus() {
         document.getElementById('progressFill').style.width = '100%';
         document.getElementById('btnScan').disabled = false;
         document.getElementById('btnScan').textContent = '开始扫描';
+        document.getElementById('btnStopScan').disabled = false;
+        document.getElementById('btnStopScan').textContent = '停止扫描';
+        document.getElementById('btnStopScan').style.display = 'none';
         loadDevices();
-        if (s.online > 0) showToast(`扫描完成，发现 ${s.online} 台在线设备`, 'success');
+        if (s.cancelled) {
+          showToast('扫描已停止', 'success');
+        } else if (s.online > 0) {
+          showToast(`扫描完成，发现 ${s.online} 台在线设备`, 'success');
+        } else {
+          showToast('扫描完成，未发现在线设备', 'success');
+        }
         setTimeout(() => document.getElementById('progressFill').style.width = '0%', 300);
         return;
       }
       if (s.total > 0) {
         const pct = Math.round((s.progress / s.total) * 100);
         document.getElementById('progressFill').style.width = pct + '%';
-        document.getElementById('btnScan').textContent = `扫描中 ${pct}%`;
+        document.getElementById('btnScan').textContent = s.stopping ? `停止中 ${pct}%` : `扫描中 ${pct}%`;
       }
     } catch(e) {}
   }, 500);

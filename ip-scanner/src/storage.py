@@ -57,6 +57,20 @@ def init_db() -> None:
         conn.close()
 
 
+def clear_scan_data() -> None:
+    """清空设备列表和历史扫描记录。"""
+    conn = get_connection()
+    try:
+        conn.execute("DELETE FROM scan_records")
+        conn.execute("DELETE FROM devices")
+        conn.execute(
+            "DELETE FROM sqlite_sequence WHERE name IN ('scan_records', 'devices')"
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def upsert_device(
     ip_address: str,
     mac_address: Optional[str] = None,

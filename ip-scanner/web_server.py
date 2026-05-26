@@ -14,7 +14,7 @@ from src.arp import resolve_hostname
 from src.vendor import lookup_vendor
 from src.storage import (
     init_db, upsert_device, insert_scan_record,
-    mark_offline_devices, get_all_devices,
+    mark_offline_devices, get_all_devices, clear_scan_data,
 )
 from src.export import export_csv, export_json, export_excel
 from src.monitor import get_monitor, Monitor
@@ -23,7 +23,15 @@ app = Flask(__name__)
 init_db()
 
 _scanning = threading.Lock()
-_scan_status: dict = {"running": False, "progress": 0, "total": 0, "online": 0}
+_scan_stop_event = threading.Event()
+_scan_status: dict = {
+    "running": False,
+    "progress": 0,
+    "total": 0,
+    "online": 0,
+    "stopping": False,
+    "cancelled": False,
+}
 
 
 # ===== 页面路由 =====
@@ -60,23 +68,68 @@ def api_scan():
     # 支持自定义网段
     body = request.get_json(silent=True) or {}
     subnet = body.get("subnet", "").strip() or get_local_subnet()
+    _scan_stop_event.clear()
+    clear_scan_data()
+    _scan_status = {
+        "running": True,
+        "progress": 0,
+        "total": 0,
+        "online": 0,
+        "stopping": False,
+        "cancelled": False,
+    }
 
     def _do_scan(subnet):
         global _scan_status
         with _scanning:
-            _scan_status = {"running": True, "progress": 0, "total": 0, "online": 0}
-
             def progress(current, total):
                 _scan_status["progress"] = current
                 _scan_status["total"] = total
 
-            results = scan_subnet(subnet, progress_callback=progress)
+            results = scan_subnet(
+                subnet,
+                progress_callback=progress,
+                stop_event=_scan_stop_event,
+            )
+            if _scan_stop_event.is_set():
+                _scan_status = {
+                    "running": False,
+                    "progress": _scan_status["progress"],
+                    "total": _scan_status["total"],
+                    "online": 0,
+                    "stopping": False,
+                    "cancelled": True,
+                }
+                return
+
             online_results = [r for r in results if r.is_online]
 
             for r in online_results:
+                if _scan_stop_event.is_set():
+                    _scan_status = {
+                        "running": False,
+                        "progress": _scan_status["progress"],
+                        "total": _scan_status["total"],
+                        "online": 0,
+                        "stopping": False,
+                        "cancelled": True,
+                    }
+                    return
+
                 r.mac_address = resolve_mac_from_arp_table(r.ip_address)
                 r.hostname = resolve_hostname(r.ip_address)
                 vendor = lookup_vendor(r.mac_address) if r.mac_address else None
+                if _scan_stop_event.is_set():
+                    _scan_status = {
+                        "running": False,
+                        "progress": _scan_status["progress"],
+                        "total": _scan_status["total"],
+                        "online": 0,
+                        "stopping": False,
+                        "cancelled": True,
+                    }
+                    return
+
                 device_id = upsert_device(
                     ip_address=r.ip_address,
                     mac_address=r.mac_address,
@@ -91,6 +144,7 @@ def api_scan():
             _scan_status = {
                 "running": False, "progress": _scan_status["total"],
                 "total": _scan_status["total"], "online": len(online_results),
+                "stopping": False, "cancelled": False,
             }
 
     thread = threading.Thread(target=_do_scan, args=(subnet,), daemon=True)
@@ -101,6 +155,16 @@ def api_scan():
 @app.route("/api/scan/status")
 def api_scan_status():
     return jsonify(_scan_status)
+
+
+@app.route("/api/scan/stop", methods=["POST"])
+def api_scan_stop():
+    if not _scan_status["running"]:
+        return jsonify({"message": "当前没有正在进行的扫描", "running": False})
+
+    _scan_stop_event.set()
+    _scan_status["stopping"] = True
+    return jsonify({"message": "正在停止扫描", "running": True})
 
 
 # ===== 导出 API =====
